@@ -1,0 +1,32 @@
+# CMake build directory
+build/
+cmake-build-*/
+
+# TLS certificates (must be generated locally, never committed)
+cert/
+
+# Compiled artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# Example server database
+*.db
+
+# Generated documentation
+docs/
+
+# Vendored third-party libraries (obtained via git clone into libs/)
+libs/*/
+
+# Editor / IDE files
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

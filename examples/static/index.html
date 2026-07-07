@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DBSC-Go Test Console</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #0f0f14;
+            --surface: #1a1a24;
+            --surface-alt: #22222e;
+            --border: #2d2d3d;
+            --text: #e4e4ef;
+            --text-dim: #8888a0;
+            --accent: #6c5ce7;
+            --accent-glow: rgba(108, 92, 231, 0.3);
+            --green: #00d2a0;
+            --green-glow: rgba(0, 210, 160, 0.2);
+            --red: #ff6b81;
+            --yellow: #ffd93d;
+            --blue: #74b9ff;
+            --orange: #fdcb6e;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), var(--blue));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 760px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: border-color 0.2s;
+        }
+
+        .card:hover {
+            border-color: var(--accent);
+        }
+
+        .card h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-end;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            flex: 1;
+        }
+
+        label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            font-weight: 500;
+        }
+
+        input {
+            background: var(--surface-alt);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.6rem 0.8rem;
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--accent);
+        }
+
+        button {
+            background: linear-gradient(135deg, var(--accent), #5a4bd1);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.6rem 1.2rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px var(--accent-glow);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button.secondary {
+            background: var(--surface-alt);
+            border: 1px solid var(--border);
+        }
+
+        button.secondary:hover {
+            border-color: var(--accent);
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--red);
+        }
+
+        .status-dot.connected {
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green-glow);
+        }
+
+        .info-box {
+            background: var(--surface-alt);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.8rem 1rem;
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        /* --- Event Timeline --- */
+        .timeline {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            max-height: 480px;
+            overflow-y: auto;
+        }
+
+        .event {
+            display: grid;
+            grid-template-columns: 60px 90px 1fr;
+            gap: 0.75rem;
+            padding: 0.6rem 0.8rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.76rem;
+            line-height: 1.5;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .event-time {
+            color: var(--text-dim);
+        }
+
+        .event-type {
+            font-weight: 600;
+            padding: 1px 6px;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.68rem;
+            display: inline-block;
+        }
+
+        .event-type.LOGIN {
+            background: var(--accent);
+            color: white;
+        }
+
+        .event-type.REGISTER {
+            background: var(--green);
+            color: #0a0a0a;
+        }
+
+        .event-type.REFRESH {
+            background: var(--blue);
+            color: #0a0a0a;
+        }
+
+        .event-type.LOGIN_FAIL {
+            background: var(--red);
+            color: white;
+        }
+
+        .event-type.REG_FAIL {
+            background: var(--orange);
+            color: #0a0a0a;
+        }
+
+        .event-type.REFRESH_FAIL {
+            background: var(--orange);
+            color: #0a0a0a;
+        }
+
+        .event-detail {
+            color: var(--text);
+            opacity: 0.85;
+            word-break: break-all;
+        }
+
+        .event-detail .user {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .event-detail .session {
+            color: var(--yellow);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+
+        .polling-indicator {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+            margin-right: 0.3rem;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 0.3;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔐 DBSC-Go Test Console</h1>
+    <p class="subtitle">Device Bound Session Credentials — Native Browser Flow</p>
+
+    <div class="container">
+        <!-- Status -->
+        <div class="card">
+            <div class="status-bar">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Checking server...</span>
+            </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="card">
+            <h2>📖 테스트 방법</h2>
+            <div class="info-box">
+                <strong>1.</strong> 아래에서 로그인합니다.<br>
+                <strong>2.</strong> 서버가 <code>Secure-Session-Registration</code> 헤더를 반환합니다.<br>
+                <strong>3.</strong> Chrome이 자동으로 키 생성 → <code>/dbsc/register</code> 호출합니다.<br>
+                <strong>4.</strong> 쿠키 만료 시 Chrome이 자동으로 <code>/dbsc/refresh</code>를 호출합니다.<br>
+                <strong>※</strong> Register와 Refresh는 브라우저가 네이티브로 처리하며, 아래 이벤트 로그에서 확인할 수 있습니다.
+            </div>
+        </div>
+
+        <!-- Login -->
+        <div class="card">
+            <h2>🔑 Login</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="username" value="alice" placeholder="alice or bob">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" value="password123">
+                </div>
+                <button onclick="doLogin()" id="btnLogin">Login</button>
+            </div>
+            <div id="loginResult" style="margin-top:0.75rem; font-size:0.8rem; display:none;"></div>
+        </div>
+
+        <!-- Protected Resource Test -->
+        <div class="card">
+            <h2>🛡️ Protected Resource</h2>
+            <div class="info-box">
+                쿠키가 만료된 상태에서 요청하면 Chrome이 자동으로 <code>/dbsc/refresh</code>를 먼저 호출합니다.<br>
+                <strong>Start Auto-Poll</strong>을 누르면 10초마다 <code>/api/me</code>를 호출합니다.
+            </div>
+            <div class="form-row">
+                <button onclick="fetchMe()">Request /api/me</button>
+                <button onclick="toggleAutoPoll()" id="btnAutoPoll" class="secondary">Start Auto-Poll (10s)</button>
+            </div>
+            <div id="meResult" style="margin-top:0.75rem; font-size:0.8rem; display:none;"></div>
+        </div>
+
+        <!-- Server Event Log -->
+        <div class="card">
+            <h2>
+                <span class="polling-indicator"></span>
+                📡 Server Event Log
+                <span style="font-weight:400; font-size:0.7rem; color:var(--text-dim); margin-left:auto;">
+                    auto-refresh 1s
+                </span>
+            </h2>
+            <div class="timeline" id="timeline">
+                <div class="empty-state">로그인 후 이벤트가 여기에 표시됩니다.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventOffset = 0;
+        let polling = null;
+
+        // --- Check server status ---
+        async function checkServer() {
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+                document.getElementById('statusDot').classList.add('connected');
+                document.getElementById('statusText').textContent =
+                    `Connected — ${data.service} (${data.mode})`;
+                startPolling();
+            } catch (e) {
+                document.getElementById('statusText').textContent = 'Server unreachable';
+            }
+        }
+
+        // --- Login ---
+        async function doLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const result = document.getElementById('loginResult');
+
+            try {
+                const resp = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    credentials: 'include',
+                    body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+                });
+
+                const data = await resp.json();
+                const regHeader = resp.headers.get('Secure-Session-Registration');
+
+                result.style.display = 'block';
+                if (resp.ok) {
+                    let html = `<span style="color:var(--green)">✓ 로그인 성공</span> — session: <code>${data.session_id}</code>`;
+                    if (regHeader) {
+                        html += `<br><span style="color:var(--yellow)">⚡ Secure-Session-Registration 전송됨</span>`;
+                        html += `<br><span style="color:var(--text-dim); font-size:0.7rem;">${regHeader}</span>`;
+                        html += `<br><span style="color:var(--blue)">→ Chrome이 자동으로 DBSC 등록을 시작합니다. 아래 이벤트 로그를 확인하세요.</span>`;
+                    }
+                    result.innerHTML = html;
+                } else {
+                    result.innerHTML = `<span style="color:var(--red)">✗ ${data.message || resp.statusText}</span>`;
+                }
+            } catch (e) {
+                result.style.display = 'block';
+                result.innerHTML = `<span style="color:var(--red)">✗ ${e.message}</span>`;
+            }
+        }
+
+        // --- Poll server events ---
+        function startPolling() {
+            if (polling) return;
+            polling = setInterval(pollEvents, 1000);
+            pollEvents();
+        }
+
+        async function pollEvents() {
+            try {
+                const resp = await fetch(`/api/events?since=${eventOffset}`);
+                const data = await resp.json();
+
+                if (data.events && data.events.length > 0) {
+                    const timeline = document.getElementById('timeline');
+
+                    // Clear empty state
+                    const empty = timeline.querySelector('.empty-state');
+                    if (empty) empty.remove();
+
+                    for (const ev of data.events) {
+                        const el = document.createElement('div');
+                        el.className = 'event';
+
+                        let detail = '';
+                        if (ev.user) detail += `<span class="user">${ev.user}</span> `;
+                        if (ev.session) detail += `<span class="session">${ev.session.substring(0, 18)}...</span> `;
+                        if (ev.detail) detail += ev.detail;
+
+                        el.innerHTML = `
+                            <span class="event-time">${ev.time}</span>
+                            <span class="event-type ${ev.type}">${ev.type}</span>
+                            <span class="event-detail">${detail}</span>
+                        `;
+                        timeline.appendChild(el);
+                    }
+
+                    timeline.scrollTop = timeline.scrollHeight;
+                }
+
+                eventOffset = data.total;
+            } catch (e) {
+                // Server unreachable, ignore
+            }
+        }
+
+        // --- Fetch protected resource ---
+        async function fetchMe() {
+            const result = document.getElementById('meResult');
+            result.style.display = 'block';
+            try {
+                const resp = await fetch('/api/me');
+                const data = await resp.json();
+                if (resp.ok) {
+                    result.innerHTML = `<span style="color:var(--green)">✓ ${data.user}</span> — <code>${data.time}</code>`;
+                } else {
+                    result.innerHTML = `<span style="color:var(--red)">✗ ${resp.status} ${data.message || resp.statusText}</span>`;
+                }
+            } catch (e) {
+                result.innerHTML = `<span style="color:var(--red)">✗ ${e.message}</span>`;
+            }
+        }
+
+        let autoPoll = null;
+        function toggleAutoPoll() {
+            const btn = document.getElementById('btnAutoPoll');
+            if (autoPoll) {
+                clearInterval(autoPoll);
+                autoPoll = null;
+                btn.textContent = 'Start Auto-Poll (10s)';
+            } else {
+                fetchMe();
+                autoPoll = setInterval(fetchMe, 10000);
+                btn.textContent = 'Stop Auto-Poll';
+            }
+        }
+
+        // --- Init ---
+        checkServer();
+    </script>
+</body>
+
+</html>
