@@ -31,7 +31,7 @@ typedef struct {
      *
      * When set, it is included in the Secure-Session-Registration header
      * during initiate and verified against the proof JWT's authorization
-     * claim during register (spec §9.10). @c NULL disables the feature.
+     * claim during register (spec 9.10). @c NULL disables the feature.
      */
     const char *authorization;
 
@@ -158,7 +158,7 @@ int opendbsc_manager_refresh(OpenDBSC_Manager *mgr,
                              OpenDBSC_ManagerResponse *resp);
 
 /**
- * @brief Close a DBSC session (spec §9.6).
+ * @brief Close a DBSC session (spec 9.6).
  *
  * Removes the session from the store and produces a response with a
  * @c continue:false instruction body and a session cookie expired via

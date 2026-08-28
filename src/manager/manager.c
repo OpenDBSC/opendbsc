@@ -188,7 +188,7 @@ static char *build_set_cookie(const OpenDBSC_Manager *mgr, const char *value) {
  * @brief Build the instruction JSON response body.
  *
  * When @p continue_session is false, only @c "continue": false is emitted
- * and the other instruction keys are omitted (spec §9.6).
+ * and the other instruction keys are omitted (spec 9.6).
  */
 static char *build_instruction_body(const OpenDBSC_Manager *mgr,
                                     const OpenDBSC_Session *session,
@@ -377,7 +377,7 @@ int opendbsc_manager_register(OpenDBSC_Manager *mgr,
         return 0;
     }
 
-    /* The authorization value must round-trip unchanged (spec §9.10). */
+    /* The authorization value must round-trip unchanged (spec 9.10). */
     if (mgr->cfg.authorization != NULL &&
         (proof.authorization == NULL ||
          strcmp(proof.authorization, mgr->cfg.authorization) != 0)) {
@@ -464,7 +464,7 @@ int opendbsc_manager_refresh(OpenDBSC_Manager *mgr,
 
     OpenDBSC_ProofJWT proof;
     opendbsc_proof_jwt_init(&proof);
-    /* Refresh proofs are verified against the registered key (spec §9.10). */
+    /* Refresh proofs are verified against the registered key (spec 9.10). */
     if (session->public_key == NULL ||
         opendbsc_jwt_verify_with_jwk(session_response_header,
                                      session->public_key, &proof) != 0) {

@@ -649,7 +649,7 @@ cJSON *opendbsc_instruction_to_json(const OpenDBSC_SessionInstruction *instructi
         return NULL;
     }
 
-    /* When continue is false, all other keys may be omitted (spec §9.6). */
+    /* When continue is false, all other keys may be omitted (spec 9.6). */
     if (instruction->has_continue && !instruction->continue_session) {
         if (cJSON_AddBoolToObject(obj, "continue", 0) == NULL) {
             goto fail;
