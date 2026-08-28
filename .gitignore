@@ -1,5 +1,6 @@
-# CMake build directory
+# CMake build directories
 build/
+build_*/
 cmake-build-*/
 
 # TLS certificates (must be generated locally, never committed)
