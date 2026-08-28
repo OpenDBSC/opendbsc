@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "mongoose.h"
+#include "protocol/header.h"
 
 /**
  * @file wrapper/http.c
@@ -193,6 +194,42 @@ static void send_response(struct mg_connection *c,
 }
 
 /**
+ * @brief Report Secure-Session-Skipped entries to the manager event callback.
+ *
+ * Parses the request's Secure-Session-Skipped header, if present, and emits
+ * one "SESSION_SKIPPED" event per entry (type, user=NULL, session_id,
+ * detail=reason). The response flow is unaffected.
+ */
+static void handle_session_skipped(OpenDBSC_HTTPServer *server,
+                                   struct mg_http_message *hm) {
+    struct mg_str *hdr = mg_http_get_header(hm, "Secure-Session-Skipped");
+    char *value = mg_str_dup(hdr);
+    if (value == NULL) {
+        return;
+    }
+
+    OpenDBSC_SkippedEntry *entries = NULL;
+    size_t count = 0;
+    if (opendbsc_parse_session_skipped(value, &entries, &count) != 0) {
+        free(value);
+        return;
+    }
+    free(value);
+
+    for (size_t i = 0; i < count; i++) {
+        if (server->manager->cfg.on_event != NULL) {
+            server->manager->cfg.on_event("SESSION_SKIPPED", NULL,
+                                          entries[i].session_id,
+                                          entries[i].reason,
+                                          server->manager->cfg.on_event_userdata);
+        }
+        free((void *)entries[i].reason);
+        free((void *)entries[i].session_id);
+    }
+    free(entries);
+}
+
+/**
  * @brief Mongoose event handler for DBSC requests.
  */
 static void dbsc_event_handler(struct mg_connection *c, int ev, void *ev_data) {
@@ -212,6 +249,9 @@ static void dbsc_event_handler(struct mg_connection *c, int ev, void *ev_data) {
 
     if (ev == MG_EV_HTTP_MSG) {
         struct mg_http_message *hm = (struct mg_http_message *)ev_data;
+
+        handle_session_skipped(server, hm);
+
         char *uri = mg_str_dup(&hm->uri);
         char *method = mg_str_dup(&hm->method);
         char *body = mg_str_dup(&hm->body);
@@ -264,7 +304,9 @@ static void dbsc_event_handler(struct mg_connection *c, int ev, void *ev_data) {
 
         if (strcmp(method, "POST") == 0 && strcmp(uri, "/dbsc/refresh") == 0) {
             struct mg_str *sid_hdr = mg_http_get_header(hm, "Sec-Secure-Session-Id");
-            char *session_id = mg_str_dup(sid_hdr);
+            char *sid_raw = mg_str_dup(sid_hdr);
+            char *session_id = strip_quotes(sid_raw);
+            free(sid_raw);
             if (session_id == NULL) {
                 session_id = opendbsc_http_get_cookie(hm,
                                                       server->manager->cfg.cookie_name);

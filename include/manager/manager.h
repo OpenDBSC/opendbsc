@@ -27,6 +27,15 @@ typedef struct {
     int session_ttl_seconds;     /**< Backend session TTL; 0 means infinite. */
 
     /**
+     * @brief Optional authorization value echoed to the client.
+     *
+     * When set, it is included in the Secure-Session-Registration header
+     * during initiate and verified against the proof JWT's authorization
+     * claim during register (spec §9.10). @c NULL disables the feature.
+     */
+    const char *authorization;
+
+    /**
      * @brief Optional lifecycle event callback.
      *
      * @param type Event type ("LOGIN", "REGISTER", "REFRESH", "LOGIN_FAIL", ...).
@@ -147,6 +156,23 @@ int opendbsc_manager_refresh(OpenDBSC_Manager *mgr,
                              const char *session_id,
                              const char *session_response_header,
                              OpenDBSC_ManagerResponse *resp);
+
+/**
+ * @brief Close a DBSC session (spec §9.6).
+ *
+ * Removes the session from the store and produces a response with a
+ * @c continue:false instruction body and a session cookie expired via
+ * @c Max-Age=0. Emits the "CLOSE" lifecycle event.
+ *
+ * @param mgr Pointer to the manager.
+ * @param session_id Identifier of the session to close.
+ * @param resp Pointer to the response structure.
+ *
+ * @return 0 if a response was produced (check @p resp->status_code),
+ *         or -1 on internal error.
+ */
+int opendbsc_manager_close(OpenDBSC_Manager *mgr, const char *session_id,
+                           OpenDBSC_ManagerResponse *resp);
 
 /**
  * @brief Retrieve a session by cookie value.

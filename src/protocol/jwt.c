@@ -473,9 +473,51 @@ static EVP_PKEY *evp_pkey_from_jwk(cJSON *jwk) {
 }
 
 /**
- * @brief Verify the signature of a DBSC proof JWT.
+ * @brief Convert a raw JWS ES256 signature (R || S, 64 bytes) to DER form.
+ *
+ * OpenSSL's EVP_DigestVerifyFinal expects a DER-encoded ECDSA_SIG, while
+ * RFC 7518 defines the JWS ES256 signature as the raw concatenation of R
+ * and S. Returns 0 on success and replaces @p sig/@p sig_len with a newly
+ * allocated DER buffer.
  */
-int opendbsc_jwt_verify_signature(const char *token, const OpenDBSC_ProofJWT *proof) {
+static int es256_raw_to_der(unsigned char **sig, size_t *sig_len) {
+    if (*sig_len != 64) {
+        return -1;
+    }
+    ECDSA_SIG *ecsig = ECDSA_SIG_new();
+    if (ecsig == NULL) {
+        return -1;
+    }
+    int rc = -1;
+    unsigned char *der = NULL;
+    if (ECDSA_SIG_set0(ecsig,
+                       BN_bin2bn(*sig, 32, NULL),
+                       BN_bin2bn(*sig + 32, 32, NULL)) == 1) {
+        int der_len = i2d_ECDSA_SIG(ecsig, &der);
+        if (der_len > 0) {
+            free(*sig);
+            *sig = der;
+            *sig_len = (size_t)der_len;
+            rc = 0;
+        }
+    }
+    ECDSA_SIG_free(ecsig);
+    return rc;
+}
+
+/**
+ * @brief Verify the signature of a DBSC proof JWT against a given JWK.
+ *
+ * @param token Null-terminated JWT string.
+ * @param proof Decoded proof JWT containing the algorithm and signature.
+ * @param jwk_json JWK JSON string to verify against. May be @c NULL only
+ *                 when the algorithm is "none".
+ *
+ * @return 0 if the signature is valid, or -1 otherwise.
+ */
+static int verify_signature_with_jwk(const char *token,
+                                     const OpenDBSC_ProofJWT *proof,
+                                     const char *jwk_json) {
     if (token == NULL || proof == NULL || proof->algorithm == NULL) {
         return -1;
     }
@@ -486,7 +528,7 @@ int opendbsc_jwt_verify_signature(const char *token, const OpenDBSC_ProofJWT *pr
     if (strcmp(proof->algorithm, "ES256") != 0 && strcmp(proof->algorithm, "RS256") != 0) {
         return -1;
     }
-    if (proof->jwk == NULL || proof->signature == NULL) {
+    if (jwk_json == NULL || proof->signature == NULL) {
         return -1;
     }
 
@@ -501,8 +543,13 @@ int opendbsc_jwt_verify_signature(const char *token, const OpenDBSC_ProofJWT *pr
     if (opendbsc_base64url_decode(proof->signature, &sig, &sig_len) != 0) {
         return -1;
     }
+    if (strcmp(proof->algorithm, "ES256") == 0 &&
+        es256_raw_to_der(&sig, &sig_len) != 0) {
+        free(sig);
+        return -1;
+    }
 
-    cJSON *jwk = cJSON_Parse(proof->jwk);
+    cJSON *jwk = cJSON_Parse(jwk_json);
     if (jwk == NULL) {
         free(sig);
         return -1;
@@ -538,6 +585,43 @@ int opendbsc_jwt_verify_signature(const char *token, const OpenDBSC_ProofJWT *pr
 }
 
 /**
+ * @brief Verify the signature of a DBSC proof JWT.
+ */
+int opendbsc_jwt_verify_signature(const char *token, const OpenDBSC_ProofJWT *proof) {
+    if (proof == NULL) {
+        return -1;
+    }
+    return verify_signature_with_jwk(token, proof, proof->jwk);
+}
+
+/**
+ * @brief Check that the JWT typ claim is the DBSC proof type.
+ *
+ * @return 0 when @p proof has typ "dbsc+jwt", or -1 otherwise.
+ */
+static int check_proof_type(const OpenDBSC_ProofJWT *proof) {
+    if (proof->type == NULL || strcmp(proof->type, "dbsc+jwt") != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+/**
+ * @brief Enforce the registration-flow jwk/alg rules.
+ *
+ * ES256 and RS256 tokens must carry a @c jwk header claim; "none" tokens
+ * must not.
+ *
+ * @return 0 when the rules hold, or -1 otherwise.
+ */
+static int check_registration_jwk_rules(const OpenDBSC_ProofJWT *proof) {
+    if (strcmp(proof->algorithm, "none") == 0) {
+        return proof->jwk == NULL ? 0 : -1;
+    }
+    return proof->jwk != NULL ? 0 : -1;
+}
+
+/**
  * @brief Decode and verify a DBSC proof JWT.
  */
 int opendbsc_jwt_decode_and_verify(const char *token, OpenDBSC_ProofJWT *proof) {
@@ -551,7 +635,46 @@ int opendbsc_jwt_decode_and_verify(const char *token, OpenDBSC_ProofJWT *proof) 
         return -1;
     }
 
-    int rc = opendbsc_jwt_verify_signature(token, target);
+    int rc = check_proof_type(target) != 0 ||
+             check_registration_jwk_rules(target) != 0 ||
+             verify_signature_with_jwk(token, target, target->jwk) != 0;
+    if (rc != 0) {
+        if (proof == NULL) {
+            opendbsc_proof_jwt_free(&local);
+        }
+        return -1;
+    }
+
+    if (proof == NULL) {
+        opendbsc_proof_jwt_free(&local);
+    }
+    return 0;
+}
+
+/**
+ * @brief Verify a DBSC proof JWT against a stored JWK.
+ */
+int opendbsc_jwt_verify_with_jwk(const char *token, const char *jwk_json,
+                                 OpenDBSC_ProofJWT *proof) {
+    if (token == NULL || jwk_json == NULL) {
+        return -1;
+    }
+
+    OpenDBSC_ProofJWT local;
+    opendbsc_proof_jwt_init(&local);
+
+    OpenDBSC_ProofJWT *target = proof != NULL ? proof : &local;
+
+    if (opendbsc_jwt_decode(token, target) != 0) {
+        opendbsc_proof_jwt_free(&local);
+        return -1;
+    }
+
+    /* Refresh proofs must not embed a key; the registered key is pinned. */
+    int rc = target->jwk != NULL ||
+             check_proof_type(target) != 0 ||
+             strcmp(target->algorithm, "none") == 0 ||
+             verify_signature_with_jwk(token, target, jwk_json) != 0;
     if (rc != 0) {
         if (proof == NULL) {
             opendbsc_proof_jwt_free(&local);

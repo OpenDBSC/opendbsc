@@ -6,7 +6,7 @@ A **Device Bound Session Credentials (DBSC)** library and example server
 
 - DBSC session creation / registration / refresh protocol
 - ES256, RS256 JWT proof signature verification (OpenSSL)
-- Session stores: memory, SQLite, Redis
+- Session stores: memory, SQLite, Redis, ODBC (MySQL, PostgreSQL, MSSQL, etc.)
 - mongoose-based HTTPS server wrapper
 - Doxygen documentation support
 
@@ -85,9 +85,40 @@ mkcert -cert-file cert/cert.pem -key-file cert/key.pem localhost 127.0.0.1 ::1
 
 # Redis backend (requires redis-server)
 ./build/server redis
+
+# ODBC backend (requires an ODBC driver manager such as unixODBC or iODBC,
+# plus a driver for your RDBMS). The connection string comes from the second
+# argument or the DBSC_ODBC_CONN environment variable.
+./build/server odbc 'DRIVER={MySQL ODBC 8.0 Driver};SERVER=localhost;PORT=3306;DATABASE=dbsc;USER=dbsc;PASSWORD=secret'
+DBSC_ODBC_CONN='DRIVER={PostgreSQL Unicode};SERVER=localhost;PORT=5432;DATABASE=dbsc;UID=dbsc;PWD=secret' ./build/server odbc
 ```
 
 The default address is `https://0.0.0.0:8447`.
+
+### ODBC backend
+
+The ODBC backend is enabled by default when CMake finds an ODBC driver
+manager (`-DOPENDBSC_WITH_ODBC=OFF` disables it). On Debian/Ubuntu install
+`unixodbc-dev` plus the driver for your database (e.g. `odbc-postgresql` or
+the MySQL ODBC driver).
+
+The schema is created automatically on a best-effort basis
+(`auto_create_table`). To create it manually:
+
+```sql
+CREATE TABLE sessions (
+  id         VARCHAR(64) PRIMARY KEY,
+  user_id    VARCHAR(255) NOT NULL,
+  state      VARCHAR(16) NOT NULL DEFAULT 'active',
+  public_key TEXT,
+  algorithm  VARCHAR(64),
+  challenge  TEXT,
+  expires_at VARCHAR(32),
+  created_at VARCHAR(32) NOT NULL
+);
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
+```
 
 ### Endpoints
 
@@ -110,7 +141,7 @@ opendbsc/
 │   ├── algo/         # UUID/challenge utilities
 │   ├── protocol/     # header, instruction, jwt
 │   ├── session/      # Session model
-│   ├── store/        # memory/sqlite/redis store
+│   ├── store/        # memory/sqlite/redis/odbc store
 │   ├── manager/      # DBSC manager
 │   └── wrapper/      # mongoose HTTP wrapper
 ├── examples/         # Example server and static files

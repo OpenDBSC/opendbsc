@@ -1,6 +1,7 @@
 #ifndef OPENDBSC_INSTRUCTION_H
 #define OPENDBSC_INSTRUCTION_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include <cJSON.h>
@@ -53,12 +54,15 @@ typedef struct {
 typedef struct {
     char *session_identifier; /**< Session identifier. */
     char *refresh_url;        /**< URL used to refresh the session. */
-    int continue_session;     /**< Value of the continue_session flag. */
+    int continue_session;     /**< Value of the continue flag (default true). */
     int has_continue;         /**< Whether @p continue_session is set. */
     OpenDBSC_SessionScope scope; /**< Scope of the instruction. */
     OpenDBSC_SessionCredential *credentials; /**< Array of requested credentials. */
     size_t credentials_count;    /**< Number of credentials. */
     size_t credentials_capacity; /**< Allocated capacity of @p credentials. */
+    char **allowed_refresh_initiators; /**< Origins allowed to trigger refreshes. */
+    size_t allowed_refresh_initiators_count;    /**< Number of initiator origins. */
+    size_t allowed_refresh_initiators_capacity; /**< Allocated capacity. */
 } OpenDBSC_SessionInstruction;
 
 /**
@@ -107,6 +111,34 @@ int opendbsc_instruction_set_refresh_url(OpenDBSC_SessionInstruction *instructio
  */
 void opendbsc_instruction_set_continue_session(OpenDBSC_SessionInstruction *instruction,
                                                int continue_session);
+
+/**
+ * @brief Set the continue flag of an instruction (spec spelling).
+ *
+ * Defaults to true. When set to false, serialization omits
+ * session_identifier, scope, and credentials and emits only
+ * @c "continue": false, as allowed by the DBSC specification.
+ *
+ * @param instruction Pointer to the instruction.
+ * @param continue_session true to continue the session, false otherwise.
+ */
+void opendbsc_instruction_set_continue(OpenDBSC_SessionInstruction *instruction,
+                                       bool continue_session);
+
+/**
+ * @brief Add an origin to the allowed_refresh_initiators list.
+ *
+ * The origin is copied into the instruction's internal array. When the list
+ * is non-empty it is serialized as @c "allowed_refresh_initiators": [...].
+ *
+ * @param instruction Pointer to the instruction.
+ * @param origin Null-terminated initiator origin.
+ *
+ * @return 0 on success, or -1 if @p instruction or @p origin is @c NULL
+ *         or allocation failed.
+ */
+int opendbsc_instruction_add_refresh_initiator(OpenDBSC_SessionInstruction *instruction,
+                                               const char *origin);
 
 /**
  * @brief Add a credential to an instruction.

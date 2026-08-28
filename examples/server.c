@@ -3,7 +3,10 @@
  * @brief Example HTTPS DBSC server using OpenDBSC and mongoose.
  *
  * Run with:
- *   ./server [memory|sqlite|redis]
+ *   ./server [memory|sqlite|redis|odbc] [odbc_connection_string]
+ *
+ * For the ODBC backend the connection string is taken from the second
+ * command-line argument or the DBSC_ODBC_CONN environment variable.
  *
  * The server listens on https://0.0.0.0:8447 and expects TLS certificates
  * at cert/cert.pem and cert/key.pem relative to the working directory.
@@ -19,6 +22,9 @@
 
 #include "manager/manager.h"
 #include "store/memory.h"
+#ifdef OPENDBSC_HAVE_ODBC
+#include "store/odbc.h"
+#endif
 #include "store/redis.h"
 #include "store/sqlite.h"
 #include "wrapper/http.h"
@@ -260,7 +266,7 @@ static void signal_handler(int sig) {
 /**
  * @brief Create a session store based on the command-line argument.
  */
-static OpenDBSC_Store *create_store(const char *type) {
+static OpenDBSC_Store *create_store(const char *type, const char *odbc_conn) {
     if (type == NULL || strcmp(type, "memory") == 0) {
         return opendbsc_memory_store_create();
     }
@@ -270,15 +276,40 @@ static OpenDBSC_Store *create_store(const char *type) {
     if (strcmp(type, "redis") == 0) {
         return opendbsc_redis_store_create(NULL);
     }
-    fprintf(stderr, "unknown store type: %s (use memory, sqlite, or redis)\n",
+    if (strcmp(type, "odbc") == 0) {
+#ifdef OPENDBSC_HAVE_ODBC
+        if (odbc_conn == NULL) {
+            odbc_conn = getenv("DBSC_ODBC_CONN");
+        }
+        if (odbc_conn == NULL) {
+            fprintf(stderr,
+                    "odbc store requires a connection string (second argument "
+                    "or DBSC_ODBC_CONN)\n");
+            return NULL;
+        }
+        OpenDBSC_OdbcConfig odbc_cfg = {
+            .connection_string = odbc_conn,
+            .table_name = NULL,
+            .auto_create_table = 1,
+            .login_timeout_seconds = 0,
+        };
+        return opendbsc_odbc_store_create(&odbc_cfg);
+#else
+        fprintf(stderr, "odbc store not available: built without ODBC support\n");
+        return NULL;
+#endif
+    }
+    fprintf(stderr,
+            "unknown store type: %s (use memory, sqlite, redis, or odbc)\n",
             type);
     return NULL;
 }
 
 int main(int argc, char **argv) {
     const char *store_type = argc > 1 ? argv[1] : "memory";
+    const char *odbc_conn = argc > 2 ? argv[2] : NULL;
 
-    OpenDBSC_Store *store = create_store(store_type);
+    OpenDBSC_Store *store = create_store(store_type, odbc_conn);
     if (store == NULL) {
         fprintf(stderr, "failed to create %s store\n", store_type);
         return 1;

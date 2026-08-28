@@ -114,6 +114,7 @@ int opendbsc_manager_init(OpenDBSC_Manager *mgr, const OpenDBSC_ManagerConfig *c
     mgr->cfg.cookie_domain = copy_string(cfg->cookie_domain);
     mgr->cfg.same_site = copy_string(cfg->same_site != NULL ? cfg->same_site
                                                             : OPENDBSC_DEFAULT_SAME_SITE);
+    mgr->cfg.authorization = copy_string(cfg->authorization);
 
     if (mgr->cfg.cookie_ttl_seconds == 0) {
         mgr->cfg.cookie_ttl_seconds = OPENDBSC_DEFAULT_COOKIE_TTL;
@@ -132,18 +133,19 @@ void opendbsc_manager_destroy(OpenDBSC_Manager *mgr) {
     free((char *)mgr->cfg.cookie_path);
     free((char *)mgr->cfg.cookie_domain);
     free((char *)mgr->cfg.same_site);
+    free((char *)mgr->cfg.authorization);
     memset(mgr, 0, sizeof(*mgr));
 }
 
 /**
- * @brief Build a Set-Cookie header value.
+ * @brief Build a Set-Cookie header value with an explicit Max-Age.
  */
-static char *build_set_cookie(const OpenDBSC_Manager *mgr, const char *value) {
+static char *build_set_cookie_with_max_age(const OpenDBSC_Manager *mgr,
+                                           const char *value, int max_age) {
     const char *name = mgr->cfg.cookie_name;
     const char *path = mgr->cfg.cookie_path;
     const char *domain = mgr->cfg.cookie_domain;
     const char *same_site = mgr->cfg.same_site;
-    int max_age = mgr->cfg.cookie_ttl_seconds;
 
     int n = snprintf(NULL, 0, "%s=%s; Path=%s; Max-Age=%d; HttpOnly%s%s",
                      name, value, path, max_age,
@@ -176,13 +178,32 @@ static char *build_set_cookie(const OpenDBSC_Manager *mgr, const char *value) {
 }
 
 /**
+ * @brief Build a Set-Cookie header value.
+ */
+static char *build_set_cookie(const OpenDBSC_Manager *mgr, const char *value) {
+    return build_set_cookie_with_max_age(mgr, value, mgr->cfg.cookie_ttl_seconds);
+}
+
+/**
  * @brief Build the instruction JSON response body.
+ *
+ * When @p continue_session is false, only @c "continue": false is emitted
+ * and the other instruction keys are omitted (spec §9.6).
  */
 static char *build_instruction_body(const OpenDBSC_Manager *mgr,
-                                    const OpenDBSC_Session *session) {
+                                    const OpenDBSC_Session *session,
+                                    bool continue_session) {
     OpenDBSC_SessionInstruction inst;
     opendbsc_instruction_init(&inst);
 
+    if (!continue_session) {
+        opendbsc_instruction_set_continue(&inst, false);
+        char *body = opendbsc_instruction_to_string(&inst);
+        opendbsc_instruction_free(&inst);
+        return body;
+    }
+
+    opendbsc_instruction_set_continue(&inst, true);
     opendbsc_instruction_set_session_identifier(&inst, session->id);
     opendbsc_instruction_set_refresh_url(&inst, "/dbsc/refresh");
     opendbsc_scope_set_include_site(&inst.scope, 0);
@@ -264,7 +285,8 @@ int opendbsc_manager_initiate(OpenDBSC_Manager *mgr, const char *user_id,
 
     const char *algs[] = {"ES256", "RS256"};
     resp->registration_header = opendbsc_registration_serialize(
-        algs, 2, "/dbsc/register", session.challenge, NULL, NULL, NULL, NULL);
+        algs, 2, "/dbsc/register", session.challenge, mgr->cfg.authorization,
+        NULL, NULL, NULL);
     resp->status_code = 200;
 
     if (out_session != NULL) {
@@ -334,7 +356,7 @@ int opendbsc_manager_register(OpenDBSC_Manager *mgr,
     }
 
     if (session_response_header == NULL || session_response_header[0] == '\0') {
-        set_challenge_response(mgr, resp, session->challenge, NULL, 403);
+        set_challenge_response(mgr, resp, session->challenge, session->id, 403);
         mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
         return 0;
     }
@@ -342,14 +364,24 @@ int opendbsc_manager_register(OpenDBSC_Manager *mgr,
     OpenDBSC_ProofJWT proof;
     opendbsc_proof_jwt_init(&proof);
     if (opendbsc_jwt_decode_and_verify(session_response_header, &proof) != 0) {
-        set_challenge_response(mgr, resp, session->challenge, NULL, 403);
+        set_challenge_response(mgr, resp, session->challenge, session->id, 403);
         mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
         return 0;
     }
 
     if (proof.challenge == NULL ||
         strcmp(proof.challenge, session->challenge) != 0) {
-        set_challenge_response(mgr, resp, session->challenge, NULL, 403);
+        set_challenge_response(mgr, resp, session->challenge, session->id, 403);
+        opendbsc_proof_jwt_free(&proof);
+        mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
+        return 0;
+    }
+
+    /* The authorization value must round-trip unchanged (spec §9.10). */
+    if (mgr->cfg.authorization != NULL &&
+        (proof.authorization == NULL ||
+         strcmp(proof.authorization, mgr->cfg.authorization) != 0)) {
+        set_challenge_response(mgr, resp, session->challenge, session->id, 403);
         opendbsc_proof_jwt_free(&proof);
         mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
         return 0;
@@ -382,8 +414,9 @@ int opendbsc_manager_register(OpenDBSC_Manager *mgr,
     emit_event(mgr, "REGISTER", session->user_id, session->id, detail);
 
     resp->set_cookie = build_set_cookie(mgr, session->id);
-    resp->challenge_header = opendbsc_challenge_serialize(session->challenge, NULL);
-    resp->body = build_instruction_body(mgr, session);
+    resp->challenge_header = opendbsc_challenge_serialize(session->challenge,
+                                                          session->id);
+    resp->body = build_instruction_body(mgr, session, true);
     resp->status_code = 200;
 
     opendbsc_proof_jwt_free(&proof);
@@ -431,7 +464,10 @@ int opendbsc_manager_refresh(OpenDBSC_Manager *mgr,
 
     OpenDBSC_ProofJWT proof;
     opendbsc_proof_jwt_init(&proof);
-    if (opendbsc_jwt_decode_and_verify(session_response_header, &proof) != 0) {
+    /* Refresh proofs are verified against the registered key (spec §9.10). */
+    if (session->public_key == NULL ||
+        opendbsc_jwt_verify_with_jwk(session_response_header,
+                                     session->public_key, &proof) != 0) {
         set_challenge_response(mgr, resp, session->challenge, session->id, 403);
         mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
         return 0;
@@ -463,11 +499,66 @@ int opendbsc_manager_refresh(OpenDBSC_Manager *mgr,
     emit_event(mgr, "REFRESH", session->user_id, session->id, "session extended");
 
     resp->set_cookie = build_set_cookie(mgr, session->id);
-    resp->challenge_header = opendbsc_challenge_serialize(session->challenge, NULL);
-    resp->body = build_instruction_body(mgr, session);
+    resp->challenge_header = opendbsc_challenge_serialize(session->challenge,
+                                                          session->id);
+    resp->body = build_instruction_body(mgr, session, true);
     resp->status_code = 200;
 
     opendbsc_proof_jwt_free(&proof);
+    mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
+    return 0;
+}
+
+/**
+ * @brief Close a DBSC session.
+ */
+int opendbsc_manager_close(OpenDBSC_Manager *mgr, const char *session_id,
+                           OpenDBSC_ManagerResponse *resp) {
+    if (mgr == NULL || resp == NULL) {
+        return -1;
+    }
+    opendbsc_manager_response_init(resp);
+
+    if (session_id == NULL || session_id[0] == '\0') {
+        resp->status_code = 400;
+        resp->body = strdup("\"missing session identification\"");
+        return 0;
+    }
+
+    OpenDBSC_Session *session = NULL;
+    if (mgr->cfg.store->get(mgr->cfg.store->impl, session_id, &session) != 0) {
+        resp->status_code = 401;
+        resp->body = strdup("\"invalid session\"");
+        return 0;
+    }
+
+    char *user_id = session->user_id != NULL ? strdup(session->user_id) : NULL;
+    if (session->user_id != NULL && user_id == NULL) {
+        mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
+        return -1;
+    }
+
+    /* Build the response before deleting so a failure keeps the session. */
+    char *body = build_instruction_body(mgr, session, false);
+    if (body == NULL) {
+        free(user_id);
+        mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
+        return -1;
+    }
+
+    resp->set_cookie = build_set_cookie_with_max_age(mgr, session->id, 0);
+    resp->body = body;
+    resp->status_code = 200;
+
+    if (mgr->cfg.store->delete(mgr->cfg.store->impl, session_id) != 0) {
+        free(user_id);
+        mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
+        return -1;
+    }
+
+    emit_event(mgr, "CLOSE", user_id, session_id, "session closed");
+
+    free(user_id);
     mgr->cfg.store->free_sessions(mgr->cfg.store->impl, session, 1);
     return 0;
 }

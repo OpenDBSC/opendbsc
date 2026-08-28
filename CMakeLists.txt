@@ -68,6 +68,19 @@ target_link_libraries(opendbsc
         Threads::Threads
 )
 
+# Optional ODBC session store backend.
+option(OPENDBSC_WITH_ODBC "Build ODBC session store backend" ON)
+if(OPENDBSC_WITH_ODBC)
+    find_package(ODBC)
+    if(ODBC_FOUND)
+        target_sources(opendbsc PRIVATE src/store/odbc.c)
+        target_link_libraries(opendbsc PUBLIC ODBC::ODBC)
+        target_compile_definitions(opendbsc PUBLIC OPENDBSC_HAVE_ODBC)
+    else()
+        message(STATUS "ODBC not found: building without the ODBC session store backend")
+    endif()
+endif()
+
 # Use OpenSSL as the mongoose TLS backend.
 target_compile_definitions(opendbsc PRIVATE MG_TLS=MG_TLS_OPENSSL)
 

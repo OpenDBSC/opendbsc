@@ -288,3 +288,153 @@ char *opendbsc_parse_session_id(const char *value)
 {
     return unquote(value);
 }
+
+/**
+ * @brief Test whether a character is valid in a structured-header token.
+ */
+static int is_token_char(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+           (c >= '0' && c <= '9') || c == '!' || c == '#' || c == '$' ||
+           c == '%' || c == '&' || c == '\'' || c == '*' || c == '+' ||
+           c == '-' || c == '.' || c == '^' || c == '_' || c == '`' ||
+           c == '|' || c == '~' || c == ':' || c == '/';
+}
+
+/**
+ * @brief Test whether a reason token is defined by the DBSC specification.
+ */
+static int is_valid_skip_reason(const char *reason, size_t len)
+{
+    static const char *const valid[] = {
+        "unreachable", "server_error", "quota_exceeded",
+    };
+    for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); ++i) {
+        if (strlen(valid[i]) == len && strncmp(reason, valid[i], len) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int opendbsc_parse_session_skipped(const char *value,
+                                   OpenDBSC_SkippedEntry **out,
+                                   size_t *count)
+{
+    if (!value || !out || !count) {
+        return -1;
+    }
+    *out = NULL;
+    *count = 0;
+
+    OpenDBSC_SkippedEntry *entries = NULL;
+    size_t n_entries = 0;
+    size_t capacity = 0;
+
+    const char *p = value;
+    while (*p) {
+        while (is_space(*p) || *p == ',') {
+            ++p;
+        }
+        if (*p == '\0') {
+            break;
+        }
+
+        /* Reason token. */
+        const char *tok_start = p;
+        while (is_token_char(*p)) {
+            ++p;
+        }
+        size_t tok_len = (size_t)(p - tok_start);
+        if (tok_len == 0) {
+            goto fail;
+        }
+
+        /* Parameters: ;key="value" pairs; only session_identifier is used. */
+        char *session_id = NULL;
+        while (*p == ';') {
+            ++p;
+            while (is_space(*p)) {
+                ++p;
+            }
+            const char *key_start = p;
+            while (is_token_char(*p)) {
+                ++p;
+            }
+            size_t key_len = (size_t)(p - key_start);
+            while (is_space(*p)) {
+                ++p;
+            }
+            if (*p != '=') {
+                goto fail;
+            }
+            ++p;
+            while (is_space(*p)) {
+                ++p;
+            }
+            if (*p != '"') {
+                goto fail;
+            }
+            ++p;
+            const char *val_start = p;
+            while (*p && *p != '"') {
+                if (*p == '\\' && *(p + 1)) {
+                    p += 2;
+                } else {
+                    ++p;
+                }
+            }
+            if (*p != '"') {
+                goto fail;
+            }
+            size_t val_len = (size_t)(p - val_start);
+            ++p;
+
+            if (key_len == strlen("session_identifier") &&
+                strncmp(key_start, "session_identifier", key_len) == 0) {
+                free(session_id);
+                session_id = memdup_str(val_start, val_len);
+                if (!session_id) {
+                    goto fail;
+                }
+            }
+        }
+
+        /* Keep only spec-defined reasons with a session identifier. */
+        if (is_valid_skip_reason(tok_start, tok_len) && session_id != NULL) {
+            if (n_entries == capacity) {
+                size_t new_capacity = capacity == 0 ? 4 : capacity * 2;
+                OpenDBSC_SkippedEntry *tmp =
+                    realloc(entries, new_capacity * sizeof(*tmp));
+                if (!tmp) {
+                    free(session_id);
+                    goto fail;
+                }
+                entries = tmp;
+                capacity = new_capacity;
+            }
+            char *reason = memdup_str(tok_start, tok_len);
+            if (!reason) {
+                free(session_id);
+                goto fail;
+            }
+            entries[n_entries].reason = reason;
+            entries[n_entries].session_id = session_id;
+            ++n_entries;
+        } else {
+            free(session_id);
+        }
+    }
+
+    *out = entries;
+    *count = n_entries;
+    return 0;
+
+fail:
+    for (size_t i = 0; i < n_entries; ++i) {
+        free((void *)entries[i].reason);
+        free((void *)entries[i].session_id);
+    }
+    free(entries);
+    return -1;
+}

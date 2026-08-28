@@ -76,6 +76,26 @@ int opendbsc_jwt_decode(const char *token, OpenDBSC_ProofJWT *proof);
 int opendbsc_jwt_decode_and_verify(const char *token, OpenDBSC_ProofJWT *proof);
 
 /**
+ * @brief Verify a DBSC proof JWT against a stored JWK.
+ *
+ * This is the refresh-flow counterpart of opendbsc_jwt_decode_and_verify().
+ * The token must not carry a @c jwk header claim (the key is pinned to the
+ * value registered for the session) and @c typ must be "dbsc+jwt".
+ *
+ * @param token Null-terminated JWT string.
+ * @param jwk_json Stored public key as a JWK JSON string used to verify the
+ *                 signature.
+ * @param proof Pointer to the structure that receives the decoded values.
+ *              May be @c NULL if only verification is required.
+ *
+ * @return 0 if the JWT is valid, or -1 if it is malformed, contains an
+ *         embedded @c jwk, has a wrong @c typ, or the signature does not
+ *         verify against @p jwk_json.
+ */
+int opendbsc_jwt_verify_with_jwk(const char *token, const char *jwk_json,
+                                 OpenDBSC_ProofJWT *proof);
+
+/**
  * @brief Verify the signature of an already-decoded proof JWT.
  *
  * @param token Null-terminated JWT string.

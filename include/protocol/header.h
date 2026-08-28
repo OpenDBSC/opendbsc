@@ -140,6 +140,37 @@ char *opendbsc_parse_session_response(const char *value);
  */
 char *opendbsc_parse_session_id(const char *value);
 
+/**
+ * @brief Parse a Secure-Session-Skipped header value (sf-list).
+ *
+ * Each list item is a reason token with an optional
+ * @c session_identifier="..." parameter, e.g.:
+ * @code
+ * unreachable;session_identifier="123", quota_exceeded;session_identifier="456"
+ * @endcode
+ *
+ * Only the reason tokens defined by the DBSC specification (@c unreachable,
+ * @c server_error, @c quota_exceeded) are accepted; items with any other
+ * token are skipped. Items without a @c session_identifier parameter are
+ * also skipped, so every returned entry has both fields set.
+ *
+ * Note: although @c OpenDBSC_SkippedEntry declares its fields as
+ * @c const @c char @c *, the @p reason and @p session_id pointers of the
+ * returned entries are heap-owned (malloc'ed); the caller must free each
+ * entry's fields and then the array itself with @c free().
+ *
+ * @param value Header value.
+ * @param out Pointer that receives the allocated array of entries.
+ * @param count Pointer that receives the number of entries in @p out.
+ *
+ * @return 0 on success (including when no valid entry was found, in which
+ *         case @p *out is @c NULL and @p *count is 0), or -1 if @p value is
+ *         @c NULL, the arguments are invalid, or allocation failed.
+ */
+int opendbsc_parse_session_skipped(const char *value,
+                                   OpenDBSC_SkippedEntry **out,
+                                   size_t *count);
+
 #ifdef __cplusplus
 }
 #endif

@@ -70,12 +70,15 @@ void opendbsc_instruction_init(OpenDBSC_SessionInstruction *instruction) {
 
     instruction->session_identifier = NULL;
     instruction->refresh_url = NULL;
-    instruction->continue_session = 0;
+    instruction->continue_session = 1;
     instruction->has_continue = 0;
     opendbsc_scope_init(&instruction->scope);
     instruction->credentials = NULL;
     instruction->credentials_count = 0;
     instruction->credentials_capacity = 0;
+    instruction->allowed_refresh_initiators = NULL;
+    instruction->allowed_refresh_initiators_count = 0;
+    instruction->allowed_refresh_initiators_capacity = 0;
 }
 
 /**
@@ -96,6 +99,11 @@ void opendbsc_instruction_free(OpenDBSC_SessionInstruction *instruction) {
         opendbsc_credential_free(&instruction->credentials[i]);
     }
     free(instruction->credentials);
+
+    for (size_t i = 0; i < instruction->allowed_refresh_initiators_count; i++) {
+        free(instruction->allowed_refresh_initiators[i]);
+    }
+    free(instruction->allowed_refresh_initiators);
 
     opendbsc_scope_free(&instruction->scope);
     opendbsc_instruction_init(instruction);
@@ -147,6 +155,40 @@ void opendbsc_instruction_set_continue_session(OpenDBSC_SessionInstruction *inst
 
     instruction->continue_session = continue_session ? 1 : 0;
     instruction->has_continue = 1;
+}
+
+/**
+ * @brief Set the continue flag of an instruction (spec spelling).
+ */
+void opendbsc_instruction_set_continue(OpenDBSC_SessionInstruction *instruction,
+                                       bool continue_session) {
+    opendbsc_instruction_set_continue_session(instruction, continue_session ? 1 : 0);
+}
+
+/**
+ * @brief Add an origin to the allowed_refresh_initiators list.
+ */
+int opendbsc_instruction_add_refresh_initiator(OpenDBSC_SessionInstruction *instruction,
+                                               const char *origin) {
+    if (instruction == NULL || origin == NULL) {
+        return -1;
+    }
+
+    if (grow_array((void **)&instruction->allowed_refresh_initiators,
+                   instruction->allowed_refresh_initiators_count,
+                   &instruction->allowed_refresh_initiators_capacity,
+                   sizeof(char *)) != 0) {
+        return -1;
+    }
+
+    char *copy = strdup(origin);
+    if (copy == NULL) {
+        return -1;
+    }
+
+    instruction->allowed_refresh_initiators[
+        instruction->allowed_refresh_initiators_count++] = copy;
+    return 0;
 }
 
 /**
@@ -607,6 +649,14 @@ cJSON *opendbsc_instruction_to_json(const OpenDBSC_SessionInstruction *instructi
         return NULL;
     }
 
+    /* When continue is false, all other keys may be omitted (spec §9.6). */
+    if (instruction->has_continue && !instruction->continue_session) {
+        if (cJSON_AddBoolToObject(obj, "continue", 0) == NULL) {
+            goto fail;
+        }
+        return obj;
+    }
+
     if (instruction->session_identifier != NULL &&
         cJSON_AddStringToObject(obj, "session_identifier", instruction->session_identifier) == NULL) {
         goto fail;
@@ -616,8 +666,28 @@ cJSON *opendbsc_instruction_to_json(const OpenDBSC_SessionInstruction *instructi
         goto fail;
     }
     if (instruction->has_continue &&
-        cJSON_AddBoolToObject(obj, "continue_session", instruction->continue_session ? 1 : 0) == NULL) {
+        cJSON_AddBoolToObject(obj, "continue", instruction->continue_session ? 1 : 0) == NULL) {
         goto fail;
+    }
+
+    if (instruction->allowed_refresh_initiators_count > 0) {
+        cJSON *initiators = cJSON_CreateArray();
+        if (initiators == NULL) {
+            goto fail;
+        }
+        for (size_t i = 0; i < instruction->allowed_refresh_initiators_count; i++) {
+            cJSON *origin =
+                cJSON_CreateString(instruction->allowed_refresh_initiators[i]);
+            if (origin == NULL || !cJSON_AddItemToArray(initiators, origin)) {
+                cJSON_Delete(origin);
+                cJSON_Delete(initiators);
+                goto fail;
+            }
+        }
+        if (!cJSON_AddItemToObject(obj, "allowed_refresh_initiators", initiators)) {
+            cJSON_Delete(initiators);
+            goto fail;
+        }
     }
 
     cJSON *scope = scope_to_json(&instruction->scope);
